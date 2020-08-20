@@ -1,0 +1,312 @@
+#include <LiquidCrystal_PCF8574.h>
+#include <Wire.h>
+
+LiquidCrystal_PCF8574 lcd(0x27); // set the LCD address to 0x27 for a 16 chars and 2 line display
+
+#define outputA 7
+#define outputB 6
+#define button 2
+#define waterPump A2
+
+unsigned long timeinterval;
+unsigned long oldtime = 0;
+unsigned long oldtimeWatering = 0;
+unsigned long wateringCountdown;
+unsigned long wateringCountdownOld;
+int interval = 30;
+int duration = 1;
+int durationTime = 5;
+int aState = 0;
+int counter = 1;
+int aLastState;
+int secondsPassed;
+int secondsPassedOld;
+unsigned long previousMillis = 0;
+unsigned long previousMillis2 = 0;
+int treshold = 100;
+
+int menu = 0;
+bool buttonState;
+bool lastButtonState;
+int intervalHours;
+int intervalMinutes;
+int sensorValue;
+int countdown = 100;
+
+
+void setup()
+{
+  Serial.begin(9600);
+  Serial.println("CannaIoT Watering system");
+
+  pinMode (outputA, INPUT);
+  pinMode (outputB, INPUT);
+  pinMode (button, INPUT_PULLUP);
+  pinMode (waterPump, OUTPUT);
+
+  Wire.begin();
+  Wire.beginTransmission(0x27);
+  lcd.begin(16, 2);
+  aLastState = digitalRead(outputA);
+  lcd.setBacklight(255);
+}
+
+
+void loop()
+{
+
+  // Main program.
+  // If the water sensor read is below 100 (pots are near to dry out)
+  // the program starts to count down time.
+  // If the time reaches 0, watering starts for the "durationTime".
+  // If the water sensor read is over 100 (pots are moist)
+  // the program continously resets count down, thus the counter will not start.
+  // Please note that "100" treshhold value is determined by experiments,
+  // plese adjust this value if needed.
+
+
+  unsigned long currentMillis = millis();
+  unsigned long samplingTime = 2000;
+
+  if (currentMillis - previousMillis >= samplingTime) {
+    sensorValue = analogRead(A0);
+    previousMillis = currentMillis;
+  }
+
+  // Counting time 1 sek = 1000 * millis();
+  secondsPassed = ((millis() - oldtime) / 1000);
+  secondsPassedOld = secondsPassed;
+  
+  
+  if (sensorValue < treshold) {
+    //int temp = 30;
+
+    if ((interval - secondsPassed) == 0) {
+      wateringCountdown = ((millis() - oldtime) /  1000);
+      wateringCountdownOld = wateringCountdown;
+
+
+      lcd.clear();
+      lcd.print("Watering");
+      digitalWrite(waterPump, HIGH);
+      lcd.setCursor(0, 1);
+      lcd.print(durationTime);
+      lcd.print(wateringCountdown);
+
+//        if ((durationTime - oldtime ) == 0) {
+//          digitalWrite(waterPump, LOW);
+//          oldtime = millis();
+//        }
+      
+      delay(durationTime * 1000);
+      digitalWrite(waterPump, LOW);
+      menu = 1;
+      lastButtonState  = !buttonState;
+      menu = buttonPressed(menu);
+      oldtime = millis();
+    }
+  } else {
+    oldtime = millis();
+  }
+
+
+  //// if millis overflow reset oldtime
+  if (millis() == 0 ) {
+    oldtime = 0;
+  }
+
+  ////Menues
+  // 0. Welcome screen
+  // 1. Current countdown
+  // 2. Interval settings
+  // 3. Duration settings
+  // 5. Sensor value
+  // 4. Start
+
+  if (menu > 5) {
+    menu = 1;
+  }
+
+  // Welcome screen
+  if (menu == 0) {
+    menu = buttonPressed(menu);
+  }
+
+  // Countdown Time
+  else if (menu == 1) {
+    menu = buttonPressed(menu);
+
+    lcd.setCursor(0, 1);
+    lcd.print(interval - secondsPassed);
+    lcd.print("[s] ");
+    lcd.setCursor(11, 1);
+    lcd.print(durationTime);
+    lcd.print("[s] ");
+  }
+
+  // Time interval
+
+  else if (menu == 2) {
+    menu = buttonPressed(menu);
+
+    // Encoder
+    //(if state has changed a pulse has been generated,
+    // we comapre A to B
+    // when it is different - encoder is rotating clockwise.
+
+    aState = digitalRead(outputA);
+    if (aState != aLastState) {
+      if (digitalRead(outputB) != aState) {
+        counter ++;
+      } else {
+        counter --;
+      }
+    }
+    aLastState = aState;
+
+    //"Time step"
+    interval = ((counter / 2) * 15);
+    if (interval <= 0) {
+      interval = 15;
+      counter = 2;
+    }
+
+    intervalHours = (interval / 60);
+    lcd.setCursor(0, 1);
+    lcd.print(intervalHours);
+    lcd.print("h ");
+    intervalMinutes = (interval % 60);
+    lcd.print(intervalMinutes);
+    lcd.print("m ");
+
+
+    // displaying values for tests
+    lcd.setCursor(9, 1);
+    lcd.print(counter);
+    lcd.print(interval);
+    lcd.print(secondsPassed);
+
+    //Duration Settings
+
+  } else if (menu == 3) {
+    menu = buttonPressed(menu);
+    aState = digitalRead(outputA);
+    if (aState != aLastState) {
+      if (digitalRead(outputB) != aState) {
+        duration ++;
+      } else {
+        duration --;
+      }
+    }
+    aLastState = aState;
+
+    durationTime = (duration / 2) * 5;
+    if (duration <= 1) {
+      durationTime = 5;
+      duration = 1;
+    }
+    lcd.setCursor(0, 1);
+    lcd.print(durationTime);
+    lcd.print("[s]  ");
+
+
+  } else if (menu == 4) {
+    menu = buttonPressed(menu);
+    lcd.setCursor(0, 1);
+    lcd.print(sensorValue);
+    lcd.print("  ");
+
+  } else if (menu == 5) {
+    menu = buttonPressed(menu);
+    if (digitalRead(2) == LOW) {
+      oldtime = millis();
+    }
+  }
+
+
+}
+
+//------------------------------//
+//------------END---------------//
+//------------------------------//
+
+unsigned long welcomeScreen() {
+
+  lcd.setCursor(0, 0);
+  lcd.print("    CannaIoT  ");
+  lcd.setCursor(0, 1);
+  lcd.print("waterBoy");
+}
+unsigned long currentCountdownScreen() {
+  lcd.setCursor(0, 0);
+  lcd.print(" Time");
+  lcd.setCursor(6, 0);
+  lcd.print("  Duration");
+}
+
+unsigned long intervalSettingsScreen() {
+  lcd.setCursor(0, 0);
+  lcd.print("Time interval: ");
+
+  // displaying values
+  lcd.setCursor(0, 1);
+  lcd.print(counter);
+  lcd.print(interval);
+  lcd.print(secondsPassed);
+}
+
+unsigned long durationSettingsScreen() {
+  lcd.setCursor(0, 0);
+  lcd.print("Duration time: ");
+}
+
+unsigned long sensorValueScreen() {
+  lcd.setCursor(0, 0);
+  lcd.print("Sensor value:");
+  lcd.setCursor(9, 1);
+  lcd.print("(");
+  lcd.print(treshold);
+  lcd.print(")");
+}
+unsigned long startScreen() {
+  lcd.setCursor(0, 0);
+  lcd.print(" PRESS TO START");
+}
+// Functions
+
+int buttonPressed(int a) {
+  buttonState = digitalRead(button);
+  if (buttonState != lastButtonState) {
+    if (a == 0) {
+      lcd.clear();
+      welcomeScreen();
+    }
+    if (a == 1) {
+      lcd.clear();
+      currentCountdownScreen();
+    }
+    if (a == 2) {
+      lcd.clear();
+      intervalSettingsScreen();
+    }
+    if (a == 3) {
+      lcd.clear();
+      durationSettingsScreen();
+    }
+    if (a == 4) {
+      lcd.clear();
+      sensorValueScreen();
+    }
+    if (a == 5) {
+      lcd.clear();
+      startScreen();
+    }
+    if (buttonState == LOW) {
+      a ++;
+      lcd.clear();
+      delay(10);
+    }
+    lastButtonState = buttonState;
+  }
+  return a;
+}
